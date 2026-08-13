@@ -46,9 +46,36 @@ uint32_t ht_hash(const unsigned char *array) {
     return result >> 10;
 }
 
+uint64_t parse_compact_size(int offset) {
+    unsigned char size = blk_file[offset];
+    if (size <= 0xFC) {
+        return size;
+    } else if (size == 0xFD) {
+        unsigned short *res = (unsigned short *)(blk_file + offset + 1);
+        return *res;
+    } else if (size == 0xFE) {
+        unsigned int *res = (unsigned int *)(blk_file + offset + 1);
+        return *res;
+    } else { //0xFF
+        unsigned long *res = (unsigned long *)(blk_file + offset + 1);
+        return *res;
+    } 
+}
+int get_compact_size_size(int offset) {
+    unsigned char size = blk_file[offset];
+    if (size <= 0xFC) {
+        return 1;
+    } else if (size == 0xFD) {
+        return 3;
+    } else if (size == 0xFE) {
+        return 5;
+    } else { //0xFF
+        return 9;
+    } 
+}
 void show_local_time(time_t epoch) {
     struct tm *local = localtime(&epoch);
-    printf("%d-%d-%d %d:%d:%d", local->tm_year + 1900, local->tm_mon + 1, local->tm_mday, local->tm_hour, local-> tm_min, local->tm_sec);
+    printf("%d-%02d-%02d %02d:%02d:%02d", local->tm_year + 1900, local->tm_mon + 1, local->tm_mday, local->tm_hour, local-> tm_min, local->tm_sec);
 }
 int ht_get(unsigned char *hash) {
     int index = ht_hash(hash);
@@ -229,32 +256,71 @@ void show_block(unsigned char *block_hash, int blk_num, bool hexdump) {
             block_size = (int*)(blk_file + block_offset + 4);
             get_block_hash(block_offset);
             if (memcmp(block_hash, sha, 32) == 0) {
+                    int offset = block_offset;
                     printf("\n");
                     printf("Metadata\n");
-                    printf("--------\n");
+                    printf("========\n");
                     printf("\tCurrent block hash.: ");
                     print_hex_reversed(block_hash, 32);
                     printf("\tBLK file...........: %s\n", blk_file_path);
                     printf("\tBLK file offset....: %d\n", block_offset);
                     printf("\tBlock size.........: %d bytes\n", *block_size);   
                     printf("Block header\n");
-                    printf("------------\n");
-                    int *version = (int *)(blk_file + block_offset + 8);
-                    printf("\tVersion............: %d\n", *version);
+                    printf("============\n");
+                    offset += 8;
+                    
+                    int *version = (int *)(blk_file + offset);
+                    printf("\tVersion............: 0x%04x\n", *version);
+                    offset += 4;
+
                     printf("\tPrevious Block hash: ");
-                    print_hex_reversed(blk_file + block_offset + 8 + 4, 32);
+                    print_hex_reversed(blk_file + offset, 32);
+                    offset += 32;
+
                     printf("\tMerkle Root........: ");
-                    print_hex_reversed(blk_file + block_offset + 8 + 4 + 32, 32);
-                    int *epoch = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32);
+                    print_hex_reversed(blk_file + offset, 32);
+                    offset += 32;
+
+                    int *epoch = (int *)(blk_file + offset);
                     time_t tm = (time_t)*epoch;
                     printf("\tTime...............: %d (", *epoch);
                     show_local_time(tm);
                     puts(")");
-                    int *bits = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32 + 4);
+                    offset += 4;
+
+                    int *bits = (int *)(blk_file + offset);
                     printf("\tBits...............: 0x%08x\n", *bits);
-                    int *nonce = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32 + 4 + 4);
+                    offset += 4;
+
+                    int *nonce = (int *)(blk_file + offset);
                     printf("\tNonce..............: 0x%08x\n", *nonce);
                     puts("");
+                    offset += 4;
+
+                    printf("Transactions\n");
+                    printf("============\n");
+                    long int tx_count = parse_compact_size(offset);
+                    printf("\tTransaction count..: %lu\n", tx_count);
+                    offset +=  get_compact_size_size(offset);
+
+                    printf("\tCoinbase transaction\n");                    
+                    printf("\t--------------------\n");
+                    unsigned int *tx_version = (unsigned int *)(blk_file + offset);
+                    printf("\t\tVersion.........: %u\n",*tx_version);
+                    offset += 4;
+
+                    unsigned char *marker = (unsigned char *)(blk_file + offset);
+                    if (*marker == 0) {
+                        printf("\t\tMarker..........: %u\n", *marker);
+                        unsigned char *flag = (unsigned char *)(blk_file + offset + 1);
+                        printf("\t\tFlag............: %u\n", *flag);
+                        offset += 2;
+                    }
+
+                    long int input_count = parse_compact_size(offset);
+                    offset += get_compact_size_size(offset);
+                    printf("\t\tInputs..........: %lu\n", input_count);
+                    
                     if (hexdump)
                         show_block_hex(block_offset + 8, block_offset + 8 + *block_size - 1); //skip magic and size (total 8 bytes)
                     return;
