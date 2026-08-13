@@ -230,31 +230,30 @@ void show_block(unsigned char *block_hash, int blk_num, bool hexdump) {
             get_block_hash(block_offset);
             if (memcmp(block_hash, sha, 32) == 0) {
                     printf("\n");
-                    printf("BLOCK ");
-                    print_hex(block_hash, 32);
-                    printf("==================\n");
-                    printf("Meta info\n");
-                    printf("---------\n");
-                    printf("Offset: %d\n", block_offset);
-                    printf("BLK file: %s\n", blk_file_path);
-                    printf("Block size: %d bytes\n", *block_size);   
+                    printf("Metadata\n");
+                    printf("--------\n");
+                    printf("\tCurrent block hash.: ");
+                    print_hex_reversed(block_hash, 32);
+                    printf("\tBLK file...........: %s\n", blk_file_path);
+                    printf("\tBLK file offset....: %d\n", block_offset);
+                    printf("\tBlock size.........: %d bytes\n", *block_size);   
                     printf("Block header\n");
-                    printf("-------------\n");
+                    printf("------------\n");
                     int *version = (int *)(blk_file + block_offset + 8);
-                    printf("Version: %d\n", *version);
-                    printf("Previous Block hash: ");
+                    printf("\tVersion............: %d\n", *version);
+                    printf("\tPrevious Block hash: ");
                     print_hex_reversed(blk_file + block_offset + 8 + 4, 32);
-                    printf("Merkle Root: ");
+                    printf("\tMerkle Root........: ");
                     print_hex_reversed(blk_file + block_offset + 8 + 4 + 32, 32);
                     int *epoch = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32);
                     time_t tm = (time_t)*epoch;
-                    printf("Time: %d (", *epoch);
+                    printf("\tTime...............: %d (", *epoch);
                     show_local_time(tm);
                     puts(")");
-                    int *bits = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32 + 3);
-                    printf("Bits: %d\n", *bits);
-                    int *nonce = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32 + 8 + 4);
-                    printf("Nonce: %d\n", *nonce);
+                    int *bits = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32 + 4);
+                    printf("\tBits...............: 0x%08x\n", *bits);
+                    int *nonce = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32 + 4 + 4);
+                    printf("\tNonce..............: 0x%08x\n", *nonce);
                     puts("");
                     if (hexdump)
                         show_block_hex(block_offset + 8, block_offset + 8 + *block_size - 1); //skip magic and size (total 8 bytes)

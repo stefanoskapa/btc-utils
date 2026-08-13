@@ -1,7 +1,7 @@
 *.txt
 *.dat
 
-blockdump
+blockinfo
 build_hash_blk_index
 key_gen
 
