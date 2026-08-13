@@ -1,4 +1,7 @@
-test_data/
-block_parser
-key_gen
 *.txt
+*.dat
+
+blockdump
+build_hash_blk_index
+key_gen
+

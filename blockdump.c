@@ -27,7 +27,7 @@ typedef struct block_blk_file {
 } next_block;
 
 
-next_block hash_table[HT_CAPACITY] = {0};
+next_block hash_table[20000000] = {0};
 
 void print_hex_nolf(unsigned char *array, size_t len) {
     for (int i = 0; i < len; i++) {
@@ -45,6 +45,39 @@ uint32_t ht_hash(const unsigned char *array) {
     return result >> 10;
 }
 
+int ht_get(unsigned char *hash) {
+    int index = ht_hash(hash);
+    index &= 0b00000000001111111111111111111000;
+    for (int i = 0; i < 20; i++) {
+        if (hash_table[index + i].is_present == false) {
+            return -1;
+        }
+        if (memcmp(hash, hash_table[index + i].current_hash, 32) == 0) {
+            return (index + i);
+        }
+    }
+    return -1;
+}
+
+void save_index() {
+    FILE *file = fopen("index.dat", "wb");
+    if (file == NULL) {
+        perror("fopen index.dat");
+        exit(1);
+    }
+    size_t wrote = fwrite(hash_table, sizeof(next_block), 20000000, file);
+    if (wrote != 20000000) {
+        fprintf(stderr, "short write: %zu of 20000000\n", wrote);
+        fclose(file);
+        exit(1);
+    }
+    if(fclose(file) != 0) {
+        perror("fclose index.dat");
+        exit(1);
+    }
+    fclose(file);
+}
+
 bool ht_is_slot_free(int index) {
     return !(hash_table[index].is_present);
 }
@@ -53,13 +86,13 @@ void ht_add(unsigned char *array, int blk_file_num) {
     uint32_t index = ht_hash(array);
     index &= 0b00000000001111111111111111111000;
     int slot = 0;
-    while (slot < 8 && !ht_is_slot_free(index + slot)) {
+    while (slot < 19 && !ht_is_slot_free(index + slot)) {
            slot++;  // find a free slot
     }
-    if (slot >= 8) {
+    if (slot >= 19) {
         printf("slots full!\n");
         exit(1);
-    } else if (slot >= 6){
+    } else if (slot >= 15){
         printf("slot %d reached!\n", slot);
     }
     
@@ -95,7 +128,7 @@ bool is_magic(size_t index) {
 
 
 bool load_blk_file(char *path) {
-    printf("Loading %s...\n", path);
+    //printf("Loading %s...\n", path);
     FILE *block_file = fopen(path, "rb");
     if (block_file == NULL) {
         return false;
@@ -165,47 +198,23 @@ void get_block_hash(int offset) {
     SHA256(sha, 32, sha);
 }
 
-void decrypt_header(size_t pos) {
-    size_t idx = 0;
+void decrypt_blk_file() {
     int ch;
-    for (int i = pos; i < pos +88; i++) {
+    int idx = 0;
+    for (size_t i = 0; i < blk_file_size; i++) {
         ch = blk_file[i] ^ key[idx];
         blk_file[i] = ch;
         if (idx == 7) idx = 0; else idx++;
     }
 }
 
-void index_blocks() {
 
+void show_block(unsigned char *block_hash, int blk_num) {
     int block_count = -1;
-    for (int y = 0; y <= 99999; y++) {
 
-        construct_blk_path(y);
-        if(!load_blk_file(blk_file_path)) {
-            printf("Could not open %s\n", blk_file_path);
-            return;
-        }
-        int block_offset = 0;
-        int *block_size; 
-        decrypt_header(block_offset);
-        while (is_magic(block_offset)) {
-            //block_count++;
-            //printf("block=%d\n", block_count);
-            block_size = (int*)(blk_file + block_offset + 4);
-            get_block_hash(block_offset);
-            ht_add(sha, y);
-            block_offset += 8 + *block_size; // will jump straight to the next block header
-            decrypt_header(block_offset);
-        }
-    }
-}
-
-void show_nth_block(int block_num) {
-    int block_count = -1;
-    for (int y = 0; y <= 99999; y++) {
-
-        construct_blk_path(y);
+        construct_blk_path(blk_num);
         load_blk_file(blk_file_path);
+        decrypt_blk_file();
 
         int block_offset = 0;
 
@@ -213,16 +222,17 @@ void show_nth_block(int block_num) {
             block_count++;
             int *block_size;
             block_size = (int*)(blk_file + block_offset + 4);
-                if (block_count == block_num) {
+            get_block_hash(block_offset);
+            if (memcmp(block_hash, sha, 32) == 0) {
                     printf("\n");
-                    printf("BLOCK %d\n", block_num);
+                    printf("BLOCK ");
+                    print_hex(block_hash, 32);
                     printf("==================\n");
                     printf("Offset: %d\n", block_offset);
                     printf("BLK file: %s\n", blk_file_path);
                     printf("Block size: %d bytes\n", *block_size);   
                     get_block_hash(block_offset);
                     printf("Current Block hash:  ");
-                    ht_add(sha, y);
                     print_hex_reversed(sha, 32);
                     printf("Previous Block hash: ");
                     print_hex_reversed(blk_file + block_offset + 8 + 4, 32);
@@ -233,53 +243,83 @@ void show_nth_block(int block_num) {
                 }
         }
 
+    printf("Block was not found!\n");
+}
+
+int hex_to_le32(const char *hex, unsigned char out[32]) {
+    if (strlen(hex) != 64) {
+        puts("hex not 64 bytes");
+        return -1;
     }
-    printf("Block %d was not found!\n", block_num);
-}
 
-void fail_parse_int() {
-    fprintf(stderr, "Not a valid positive 32-bit integer\n");
-    exit(EXIT_FAILURE);
-}
-
-int32_t parse_int_positive(char *str) {
-    uint64_t result = 0;
-    size_t str_size = strlen(str);
-
-    if (str_size > 10) fail_parse_int();
-
-    for (int i = 0; i < str_size; i++) {
-        unsigned char ch = str[i];
-        if (ch < '0' || ch > '9') {
-            fail_parse_int();
-        }
-        int digit = ch - '0';
-        int multiplier = 1;
-        for (int j = 0; j < str_size - (i + 1); j++) {
-            multiplier *= 10; 
-        }
-        result += (digit * multiplier); 
+    for (int i = 0; i < 32; i++) {
+        unsigned int byte;
+        if (sscanf(hex + 2 * i, "%2x", &byte) != 1)
+            return -1;
+        out[31 - i] = (unsigned char)byte;
     }
-    if (result > INT_MAX) fail_parse_int();
-
-    return (int32_t) result;
-
+    return 0;
 }
+
+bool file_exists(char *path) {
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        return false;
+    }
+    fclose(f);
+    return true;
+}
+
+void load_index() {
+    FILE *f = fopen("index.dat", "rb");
+    if (f == NULL){
+        puts("Could not open index.dat");
+        puts("Run build_hash_blk_index to create it.");
+        exit(1);
+    }
+    fread(hash_table, sizeof(next_block), 20000000, f);
+    fclose(f);
+    puts("Index loaded!");
+}
+
+void string_reverse(unsigned char *str) {
+    for (int i = 0; i < 16; i++) {
+        str[i] = str[31 - i];
+    }
+}
+
+
+
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        printf("No block number provided\n");
+        printf("No block hash provided\n");
         exit(1);
     }
-    int block_num = parse_int_positive(argv[1]);
-    //printf("Looking for block %d...\n", block_num);
     read_xor_key(xor_key_path);
 
-//    show_nth_block(block_num);
 
-    printf("indexing...\n");
-    index_blocks();
-    printf("indexing complete!\n");
+    if (file_exists("index.dat")) {
+        load_index();
+    } else {
+        printf("Could not open index.dat\n");
+    }
+
+    unsigned char block_hash_le[32];
+    int res = hex_to_le32(argv[1], block_hash_le);
+    if (res == -1) {
+        printf("Little endian conversion error\n");
+        exit(1);
+    }
+
+    int idx = ht_get(block_hash_le);
+    if (idx != -1) {
+        show_block(block_hash_le, hash_table[idx].blk_file_num);
+    } else {
+        printf("Block not found in index!\n");
+    }
+
+    
     return EXIT_SUCCESS;
 }
 

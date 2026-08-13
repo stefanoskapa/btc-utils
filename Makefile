@@ -1,10 +1,12 @@
 CC=gcc
-CFLAGS=-g
+CFLAGS=-g -Wall -Wextra
 
-all: key_gen block_parser
+all: key_gen build_hash_blk_index blockdump
 key_gen: key_gen.c
 	$(CC) $^ $(CFLAGS) -lsecp256k1 -lcrypto -o $@
-block_parser: block_parser.c
+build_hash_blk_index: build_hash_blk_index.c
+	$(CC) $^ $(CFLAGS) -lcrypto -o $@
+blockdump: blockdump.c
 	$(CC) $^ $(CFLAGS) -lcrypto -o $@
 clean:
-	rm key_gen block_parser
+	rm key_gen build_hash_blk_index blockdump
