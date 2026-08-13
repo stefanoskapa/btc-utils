@@ -5,6 +5,7 @@
 #include <string.h>
 #include <limits.h>
 #include <openssl/sha.h>
+#include <time.h>
 
 #define BLK_MAX_SIZE 134217728
 #define HT_CAPACITY 8388608 
@@ -45,6 +46,10 @@ uint32_t ht_hash(const unsigned char *array) {
     return result >> 10;
 }
 
+void show_local_time(time_t epoch) {
+    struct tm *local = localtime(&epoch);
+    printf("%d-%d-%d %d:%d:%d", local->tm_year + 1900, local->tm_mon + 1, local->tm_mday, local->tm_hour, local-> tm_min, local->tm_sec);
+}
 int ht_get(unsigned char *hash) {
     int index = ht_hash(hash);
     index &= 0b00000000001111111111111111111000;
@@ -209,7 +214,7 @@ void decrypt_blk_file() {
 }
 
 
-void show_block(unsigned char *block_hash, int blk_num) {
+void show_block(unsigned char *block_hash, int blk_num, bool hexdump) {
     int block_count = -1;
 
         construct_blk_path(blk_num);
@@ -228,15 +233,31 @@ void show_block(unsigned char *block_hash, int blk_num) {
                     printf("BLOCK ");
                     print_hex(block_hash, 32);
                     printf("==================\n");
+                    printf("Meta info\n");
+                    printf("---------\n");
                     printf("Offset: %d\n", block_offset);
                     printf("BLK file: %s\n", blk_file_path);
                     printf("Block size: %d bytes\n", *block_size);   
-                    get_block_hash(block_offset);
-                    printf("Current Block hash:  ");
-                    print_hex_reversed(sha, 32);
+                    printf("Block header\n");
+                    printf("-------------\n");
+                    int *version = (int *)(blk_file + block_offset + 8);
+                    printf("Version: %d\n", *version);
                     printf("Previous Block hash: ");
                     print_hex_reversed(blk_file + block_offset + 8 + 4, 32);
-                    show_block_hex(block_offset + 8, block_offset + 8 + *block_size - 1); //skip magic and size (total 8 bytes)
+                    printf("Merkle Root: ");
+                    print_hex_reversed(blk_file + block_offset + 8 + 4 + 32, 32);
+                    int *epoch = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32);
+                    time_t tm = (time_t)*epoch;
+                    printf("Time: %d (", *epoch);
+                    show_local_time(tm);
+                    puts(")");
+                    int *bits = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32 + 3);
+                    printf("Bits: %d\n", *bits);
+                    int *nonce = (int *)(blk_file + block_offset + 8 + 4 + 32 + 32 + 8 + 4);
+                    printf("Nonce: %d\n", *nonce);
+                    puts("");
+                    if (hexdump)
+                        show_block_hex(block_offset + 8, block_offset + 8 + *block_size - 1); //skip magic and size (total 8 bytes)
                     return;
                 } else {
                     block_offset += 8 + *block_size;
@@ -279,7 +300,6 @@ void load_index() {
     }
     fread(hash_table, sizeof(next_block), 20000000, f);
     fclose(f);
-    puts("Index loaded!");
 }
 
 void string_reverse(unsigned char *str) {
@@ -296,6 +316,10 @@ int main(int argc, char **argv) {
         printf("No block hash provided\n");
         exit(1);
     }
+    int hash_arg = 1;
+    bool hexdump = (argc >= 3) && (strcmp("-h", argv[1]) == 0);
+    if (hexdump)
+        hash_arg = 2;
     read_xor_key(xor_key_path);
 
 
@@ -306,7 +330,7 @@ int main(int argc, char **argv) {
     }
 
     unsigned char block_hash_le[32];
-    int res = hex_to_le32(argv[1], block_hash_le);
+    int res = hex_to_le32(argv[hash_arg], block_hash_le);
     if (res == -1) {
         printf("Little endian conversion error\n");
         exit(1);
@@ -314,7 +338,7 @@ int main(int argc, char **argv) {
 
     int idx = ht_get(block_hash_le);
     if (idx != -1) {
-        show_block(block_hash_le, hash_table[idx].blk_file_num);
+        show_block(block_hash_le, hash_table[idx].blk_file_num, hexdump);
     } else {
         printf("Block not found in index!\n");
     }
