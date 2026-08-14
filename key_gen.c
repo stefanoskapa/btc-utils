@@ -44,11 +44,15 @@ void derive_public_key(secp256k1_context *ctx) {
 void hash160(unsigned char *data, size_t len, unsigned char out20[20]) {
     unsigned char sha[SHA256_DIGEST_LENGTH];
     SHA256(data, len, sha);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     RIPEMD160(sha, sizeof(sha), out20);
+#pragma GCC diagnostic pop
+
 }
 
 void print_hex(unsigned char *array, size_t size) {
-    for (int i = 0; i < size; i++)
+    for (size_t i = 0; i < size; i++)
         printf("%02x", array[i]);
     printf("\n");
 }
