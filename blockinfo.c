@@ -179,36 +179,25 @@ void print_safe_ch(unsigned char ch) {
 }
 
 void hex_dump(size_t start, size_t size, char *line_prefix) {
+    size_t last_byte_offset = start + size;
 
-    for (size_t i = start; i < size; i += 16) {
+    for (size_t i = start; i < last_byte_offset; i += 16) {
         printf("%s", line_prefix);
-        int j;
-        for (j = 0; j < 16; j++) { // show hex
-            if (i + j > (start + size)) {
+        for (int j = 0; j < 16; j ++) { 
+            if (j >= size - (i - start) ) {
+                printf("   ");
+            } else {
+                printf("%02x ", blk_file[i + j]);
+            }
+        }
+        printf(" "); //insert an extra space between hex numbers and character representation
+        for (int j = 0; j < 16; j++) { 
+            if (i + j >= start + size) {
                 break;
             }
-            printf("%02x ", blk_file[i + j]);
-            if (j == 7) printf(" ");
-        }
-        if (size - i < 16) { //we are on the last line, fill with spaces
-            int num_spaces = 16 * 3 + 1;
-            num_spaces -= j * 3;
-            if (j > 7) num_spaces--;
-            for (int j = 0; j < num_spaces; j++) {
-                printf(" ");
-            }
-        }
-        printf(" ");
-        for (j = 0; j < 16; j++) { // attempt to print characters
-            if (i + j > start + size) {
-                puts("");
-                return;
-            }
-
             print_safe_ch(blk_file[i + j]);
         }
         puts("");
-
     }
 }
 
@@ -379,20 +368,40 @@ void show_block(unsigned char *block_hash, int blk_num, bool hexdump) {
                 if (is_segwit) {
                     printf("    Witness\n");
                     printf("    -------\n");
-                    unsigned long int stack_items = parse_compact_size(offset);
-                    offset += get_compact_size_size(offset);
-                    printf("      Stack Items.......: %lu\n", stack_items);
-                    for (int i = 0; i < stack_items; i++) {
-                        unsigned long int stack_item_size = parse_compact_size(offset);
+                    for (int in = 0; in < input_count; in++) {
+                        printf("      Input %d witness\n", in);
+                        unsigned long int stack_items = parse_compact_size(offset);
                         offset += get_compact_size_size(offset);
-                        printf("        Size.........: %lu\n", stack_item_size);
-                        printf("        --- Item start ---\n");
-                        hex_dump(offset, stack_item_size, "          ");
-                        printf("        --- Item end ---\n");
-                        offset += stack_item_size;
+                        printf("      Stack Items.......: %lu\n", stack_items);
+                        for (int i = 0; i < stack_items; i++) {
+                            unsigned long int stack_item_size = parse_compact_size(offset);
+                            offset += get_compact_size_size(offset);
+                            printf("        Size.........: %lu\n", stack_item_size);
+                            printf("        --- Item start ---\n");
+                            hex_dump(offset, stack_item_size, "          ");
+                            printf("        --- Item end ---\n");
+                            offset += stack_item_size;
+                        }
                     }
                 }
-
+                /*
+                   if (is_segwit) {
+                   printf("    Witness\n");
+                   printf("    -------\n");
+                   unsigned long int stack_items = parse_compact_size(offset);
+                   offset += get_compact_size_size(offset);
+                   printf("      Stack Items.......: %lu\n", stack_items);
+                   for (int i = 0; i < stack_items; i++) {
+                   unsigned long int stack_item_size = parse_compact_size(offset);
+                   offset += get_compact_size_size(offset);
+                   printf("        Size.........: %lu\n", stack_item_size);
+                   printf("        --- Item start ---\n");
+                   hex_dump(offset, stack_item_size, "          ");
+                   printf("        --- Item end ---\n");
+                   offset += stack_item_size;
+                   }
+                   }
+                   */
                 unsigned int *locktime = (unsigned int *)(blk_file + offset);
                 printf("    Locktime.........: %u\n", *locktime);
                 offset += 4;
