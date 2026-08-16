@@ -8,6 +8,7 @@
 #include <time.h>
 
 #define BLK_MAX_SIZE 134217728
+#define MAX_BLOCK_SIZE 4000000
 #define HT_CAPACITY 8388608 
 #define MINED_BLOCKS 1000000
 #define PRIME_MULTIPLIER 5
@@ -16,7 +17,7 @@ const unsigned char mainnet_magic[] = {0xf9, 0xbe, 0xb4, 0xd9};
 const char *xor_key_path = "/mnt/ssd/bitcoin-core/data/blocks/xor.dat";
 const char *blk_path = "/mnt/ssd/bitcoin-core/data/blocks";
 unsigned char key[8];
-unsigned char blk_file[BLK_MAX_SIZE]; //128 MiB
+unsigned char blk_file[MAX_BLOCK_SIZE];
 size_t blk_file_size = 0;
 char blk_file_path[512];
 unsigned char sha[SHA256_DIGEST_LENGTH];
@@ -24,6 +25,7 @@ unsigned char sha[SHA256_DIGEST_LENGTH];
 typedef struct block_blk_file {
     bool is_present;
     int blk_file_num;
+    int blk_offset;
     unsigned char current_hash[32];
 } next_block;
 
@@ -158,13 +160,15 @@ bool is_magic(size_t index) {
 }
 
 
-bool load_blk_file(char *path) {
+bool load_blk_file(char *path, int offset) {
     //printf("Loading %s...\n", path);
     FILE *block_file = fopen(path, "rb");
     if (block_file == NULL) {
         return false;
     }
-    blk_file_size = fread(blk_file, 1, BLK_MAX_SIZE, block_file);
+    fseek(block_file, offset, SEEK_SET);
+    blk_file_size = fread(blk_file, 1, MAX_BLOCK_SIZE, block_file);
+    //printf("blk file loaded from offset %d (bytes read: %d\n", offset, blk_file_size);
     fclose(block_file);
     return true;
 }
@@ -219,9 +223,10 @@ void get_block_hash(int offset) {
     SHA256(sha, 32, sha);
 }
 
-void decrypt_blk_file() {
+void decrypt_blk_file(int offset) {
+    printf("decrypting\n");
     int ch;
-    int idx = 0;
+    int idx = offset % 8;
     for (size_t i = 0; i < blk_file_size; i++) {
         ch = blk_file[i] ^ key[idx];
         blk_file[i] = ch;
@@ -230,17 +235,19 @@ void decrypt_blk_file() {
 }
 
 
-void show_block(unsigned char *block_hash, int blk_num, bool hexdump) {
-    int block_count = -1;
+void show_block(unsigned char *block_hash, int blk_num, int blk_offset, bool hexdump) {
+    //int block_count = -1;
 
     construct_blk_path(blk_num);
-    load_blk_file(blk_file_path);
-    decrypt_blk_file();
+    load_blk_file(blk_file_path, blk_offset);
+    decrypt_blk_file(blk_offset);
 
+    print_hex(blk_file, 4);
     int block_offset = 0;
-
-    while (is_magic(block_offset)) {
-        block_count++;
+    if (!is_magic(block_offset)) {
+        printf("Magic not detected!\n");
+        exit(1);
+    }
         int *block_size;
         block_size = (int*)(blk_file + block_offset + 4);
         get_block_hash(block_offset);
@@ -392,11 +399,12 @@ void show_block(unsigned char *block_hash, int blk_num, bool hexdump) {
                 hex_dump(block_offset + 8, *block_size - 1,""); //skip magic and size (total 8 bytes)
             return;
         } else {
-            block_offset += 8 + *block_size;
+            printf("Block was not found!\n");
         }
-    }
+        //else {
+         //   block_offset += 8 + *block_size;
+       // }
 
-    printf("Block was not found!\n");
 }
 
 int hex_to_le32(const char *hex, unsigned char out[32]) {
@@ -470,7 +478,8 @@ int main(int argc, char **argv) {
 
     int idx = ht_get(block_hash_le);
     if (idx != -1) {
-        show_block(block_hash_le, hash_table[idx].blk_file_num, hexdump);
+        int offset = hash_table[idx].blk_offset;
+        show_block(block_hash_le, hash_table[idx].blk_file_num, offset, hexdump);
     } else {
         printf("Block not found in index!\n");
     }

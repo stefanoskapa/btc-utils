@@ -20,6 +20,7 @@ unsigned char sha[SHA256_DIGEST_LENGTH];
 typedef struct block_blk_file {
     bool is_present;
     int blk_file_num;
+    int blk_offset;
     unsigned char current_hash[32];
 } next_block;
 
@@ -55,7 +56,7 @@ bool ht_is_slot_free(int index) {
     return !(hash_table[index].is_present);
 }
 
-void ht_add(unsigned char *array, int blk_file_num) {
+void ht_add(unsigned char *array, int blk_file_num, int blk_offset) {
     uint32_t index = ht_hash(array);
     index &= 0b00000000001111111111111111111000;
     int slot = 0;
@@ -65,12 +66,13 @@ void ht_add(unsigned char *array, int blk_file_num) {
     if (slot >= 19) {
         printf("slots full!\n");
         exit(1);
-    } else if (slot >= 15){
+    } else if (slot >= 11){
         printf("slot %d reached!\n", slot);
     }
     
     hash_table[index + slot].blk_file_num = blk_file_num;
     hash_table[index + slot].is_present = true;
+    hash_table[index + slot].blk_offset = blk_offset;
     for (int i = 0; i < 32; i++) {
         hash_table[index + slot].current_hash[i] = array[i];
     }
@@ -138,7 +140,7 @@ void index_blocks() {
 
         construct_blk_path(y);
         if(!load_blk_file(blk_file_path)) {
-            return;
+            break;
         }
         int block_offset = 0;
         int *block_size; 
@@ -148,7 +150,7 @@ void index_blocks() {
             blk_block_count++;
             block_size = (int*)(blk_file + block_offset + 4);
             get_block_hash(block_offset);
-            ht_add(sha, y);
+            ht_add(sha, y, block_offset);
             block_offset += 8 + *block_size; // will jump straight to the next block header
             decrypt_header(block_offset);
         }
@@ -167,13 +169,12 @@ bool file_exists(char *path) {
     return true;
 }
 
-int main(int argc, char **argv) {
-    read_xor_key(xor_key_path);
-    bool overwrite = argc > 1 && strcmp("-f", argv[1]) == 0;
-    if (file_exists("index.dat") && !overwrite) {
-        printf("index.dat already exists! Use -f to override");
+int main(void) {
+    if (file_exists("index.dat")) {
+        puts("index.dat already exists! Delete or rename it first.");
         exit(EXIT_FAILURE);
     } else {
+        read_xor_key(xor_key_path);
         index_blocks();
         save_index();
     }

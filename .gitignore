@@ -2,6 +2,6 @@
 *.dat
 
 blockinfo
-build_hash_blk_index
+indexer
 key_gen
 
