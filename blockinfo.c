@@ -12,7 +12,6 @@
 #define MAX_BLOCK_SIZE 4000000
 #define HT_CAPACITY 8388608 
 #define MINED_BLOCKS 1000000
-#define PRIME_MULTIPLIER 5
 
 const unsigned char mainnet_magic[] = {0xf9, 0xbe, 0xb4, 0xd9};
 const char *xor_key_path = "/mnt/ssd/bitcoin-core/data/blocks/xor.dat";
@@ -22,6 +21,10 @@ unsigned char blk_file[MAX_BLOCK_SIZE];
 size_t blk_file_size = 0;
 char blk_file_path[512];
 unsigned char sha[SHA256_DIGEST_LENGTH];
+typedef struct hash {
+     unsigned char block_hash[65];
+} hash;
+hash ordered_hashes[2000000] = {0};
 
 typedef struct block_blk_file {
     bool is_present;
@@ -208,7 +211,6 @@ void get_block_hash(int offset) {
 }
 
 void decrypt_blk_file(int offset) {
-    printf("decrypting\n");
     int ch;
     int idx = offset % 8;
     for (size_t i = 0; i < blk_file_size; i++) {
@@ -226,177 +228,177 @@ void show_block(unsigned char *block_hash, int blk_num, int blk_offset, bool hex
     load_blk_file(blk_file_path, blk_offset);
     decrypt_blk_file(blk_offset);
 
-    print_hex(blk_file, 4);
     int block_offset = 0;
     if (!is_magic(block_offset)) {
         printf("Magic not detected!\n");
         exit(1);
     }
-        int *block_size;
-        block_size = (int*)(blk_file + block_offset + 4);
-        get_block_hash(block_offset);
-        if (memcmp(block_hash, sha, 32) == 0) {
-            int offset = block_offset;
-            printf("\n");
-            printf("Metadata\n");
-            printf("========\n");
-            printf("  Current block hash.: ");
-            print_hex_reversed(block_hash, 32);
-            printf("  BLK file...........: %s\n", blk_file_path);
-            printf("  BLK file offset....: %d\n", blk_offset);
-            printf("  Block size.........: %d bytes\n", *block_size);   
-            printf("Block header\n");
-            printf("============\n");
-            offset += 8;
+    int *block_size;
+    block_size = (int*)(blk_file + block_offset + 4);
+    get_block_hash(block_offset);
+    if (memcmp(block_hash, sha, 32) == 0) {
+        int offset = block_offset;
+        printf("\n");
+        printf("Metadata\n");
+        printf("========\n");
+        printf("  Current block hash.: ");
+        print_hex_reversed(block_hash, 32);
+        printf("  BLK file...........: %s\n", blk_file_path);
+        printf("  BLK file offset....: %d\n", blk_offset);
+        printf("  Block size.........: %d bytes\n", *block_size);   
+        printf("Block header\n");
+        printf("============\n");
+        offset += 8;
 
-            int *version = (int *)(blk_file + offset);
-            printf("  Version............: 0x%04x\n", *version);
+        int *version = (int *)(blk_file + offset);
+        printf("  Version............: 0x%04x\n", *version);
+        offset += 4;
+
+        printf("  Previous Block hash: ");
+        print_hex_reversed(blk_file + offset, 32);
+        offset += 32;
+
+        printf("  Merkle Root........: ");
+        print_hex_reversed(blk_file + offset, 32);
+        offset += 32;
+
+        int *epoch = (int *)(blk_file + offset);
+        time_t tm = (time_t)*epoch;
+        printf("  Time...............: %d (", *epoch);
+        show_local_time(tm);
+        puts(")");
+        offset += 4;
+
+        int *bits = (int *)(blk_file + offset);
+        printf("  Bits...............: 0x%08x\n", *bits);
+        offset += 4;
+
+        int *nonce = (int *)(blk_file + offset);
+        printf("  Nonce..............: 0x%08x\n", *nonce);
+        puts("");
+        offset += 4;
+
+        printf("Transactions\n");
+        printf("============\n");
+        size_t tx_count = parse_compact_size(offset);
+        printf("  Transaction count..: %lu\n", tx_count);
+        offset +=  get_compact_size_size(offset);
+
+        for (size_t cur_tx = 0; cur_tx < tx_count; cur_tx++) {
+
+            if (cur_tx == 0) {
+                printf("  Transaction %lu (Coinbase)\n", cur_tx);                    
+            } else {
+                printf("  Transaction %lu\n", cur_tx);
+            }
+
+            printf("  --------------------\n");
+            bool is_segwit = false;
+            unsigned int *tx_version = (unsigned int *)(blk_file + offset);
+            printf("    Version.........: %u\n",*tx_version);
             offset += 4;
 
-            printf("  Previous Block hash: ");
-            print_hex_reversed(blk_file + offset, 32);
-            offset += 32;
+            unsigned char *marker = (unsigned char *)(blk_file + offset);
+            if (*marker == 0) {
+                printf("    Marker..........: %u\n", *marker);
+                unsigned char *flag = (unsigned char *)(blk_file + offset + 1);
+                printf("    Flag............: %u\n", *flag);
+                offset += 2;
+                is_segwit = *flag >= 1; // (*marker == 0 && *flag >= 1);
+            }
 
-            printf("  Merkle Root........: ");
-            print_hex_reversed(blk_file + offset, 32);
-            offset += 32;
+            size_t input_count = parse_compact_size(offset);
+            offset += get_compact_size_size(offset);
+            printf("    Inputs..........: %lu\n", input_count);
 
-            int *epoch = (int *)(blk_file + offset);
-            time_t tm = (time_t)*epoch;
-            printf("  Time...............: %d (", *epoch);
-            show_local_time(tm);
-            puts(")");
-            offset += 4;
+            for (size_t i = 0; i < input_count; i++) {
+                printf("    Input %lu\n", i);
+                printf("    ---------\n");
+                printf("      TXID...........:");
+                print_hex_reversed(blk_file + offset, 32);
+                offset += 32;
 
-            int *bits = (int *)(blk_file + offset);
-            printf("  Bits...............: 0x%08x\n", *bits);
-            offset += 4;
-
-            int *nonce = (int *)(blk_file + offset);
-            printf("  Nonce..............: 0x%08x\n", *nonce);
-            puts("");
-            offset += 4;
-
-            printf("Transactions\n");
-            printf("============\n");
-            size_t tx_count = parse_compact_size(offset);
-            printf("  Transaction count..: %lu\n", tx_count);
-            offset +=  get_compact_size_size(offset);
-
-            for (size_t cur_tx = 0; cur_tx < tx_count; cur_tx++) {
-
-                if (cur_tx == 0) {
-                    printf("  Transaction %lu (Coinbase)\n", cur_tx);                    
-                } else {
-                    printf("  Transaction %lu\n", cur_tx);
-                }
-
-                printf("  --------------------\n");
-                bool is_segwit = false;
-                unsigned int *tx_version = (unsigned int *)(blk_file + offset);
-                printf("    Version.........: %u\n",*tx_version);
+                unsigned int *vout = (unsigned int *)(blk_file + offset);
+                printf("      VOUT...........: %u\n", *vout);
                 offset += 4;
 
-                unsigned char *marker = (unsigned char *)(blk_file + offset);
-                if (*marker == 0) {
-                    printf("    Marker..........: %u\n", *marker);
-                    unsigned char *flag = (unsigned char *)(blk_file + offset + 1);
-                    printf("    Flag............: %u\n", *flag);
-                    offset += 2;
-                    is_segwit = *flag >= 1; // (*marker == 0 && *flag >= 1);
-                }
-
-                size_t input_count = parse_compact_size(offset);
+                size_t script_size = parse_compact_size(offset);
                 offset += get_compact_size_size(offset);
-                printf("    Inputs..........: %lu\n", input_count);
+                printf("      ScriptSig Size.....: %lu\n", script_size);
 
-                for (size_t i = 0; i < input_count; i++) {
-                    printf("    Input %lu\n", i);
-                    printf("    ---------\n");
-                    printf("      TXID...........:");
-                    print_hex_reversed(blk_file + offset, 32);
-                    offset += 32;
+                printf("      --- ScriptSig start ---\n");
+                hex_dump(offset, script_size, "        ");
+                offset += script_size;
+                printf("      --- ScriptSig end ---\n");
 
-                    unsigned int *vout = (unsigned int *)(blk_file + offset);
-                    printf("      VOUT...........: %u\n", *vout);
-                    offset += 4;
-
-                    size_t script_size = parse_compact_size(offset);
-                    offset += get_compact_size_size(offset);
-                    printf("      ScriptSig Size.....: %lu\n", script_size);
-
-                    printf("      --- ScriptSig start ---\n");
-                    hex_dump(offset, script_size, "        ");
-                    offset += script_size;
-                    printf("      --- ScriptSig end ---\n");
-
-                    unsigned int *sequence = (unsigned int *)(blk_file + offset);
-                    printf("      Sequence........: %u\n", *sequence);
-                    offset += 4;
-                }
-
-                size_t output_count = parse_compact_size(offset);
-                offset += get_compact_size_size(offset);
-                printf("    Outputs..........: %lu\n", output_count);
-
-                for (size_t i = 0; i < output_count; i++) {
-                    printf("    Output %lu\n", i);
-                    printf("    -----------\n");
-                    unsigned long int *amount = (unsigned long int *)(blk_file + offset);
-                    printf("      Amount........: %lu\n", *amount);
-                    offset += 8;
-
-                    size_t pubkey_size = parse_compact_size(offset);
-                    offset += get_compact_size_size(offset);
-                    printf("      ScriptPubKey Size: %lu\n", pubkey_size);
-                    printf("      --- ScriptPubKey start ---\n");
-                    hex_dump(offset, pubkey_size, "\t\t\t");
-                    printf("      --- ScriptPubKey end ---\n");
-                    offset += pubkey_size;
-                }
-
-                if (is_segwit) {
-                    printf("    Witness\n");
-                    printf("    -------\n");
-                    for (size_t in = 0; in < input_count; in++) {
-                        printf("      Input %lu witness\n", in);
-                        size_t stack_items = parse_compact_size(offset);
-                        offset += get_compact_size_size(offset);
-                        printf("      Stack Items.......: %lu\n", stack_items);
-                        for (size_t i = 0; i < stack_items; i++) {
-                            size_t stack_item_size = parse_compact_size(offset);
-                            offset += get_compact_size_size(offset);
-                            printf("        Size.........: %lu\n", stack_item_size);
-                            printf("        --- Item start ---\n");
-                            hex_dump(offset, stack_item_size, "          ");
-                            printf("        --- Item end ---\n");
-                            offset += stack_item_size;
-                        }
-                    }
-                }
-
-                unsigned int *locktime = (unsigned int *)(blk_file + offset);
-                printf("    Locktime.........: %u\n", *locktime);
+                unsigned int *sequence = (unsigned int *)(blk_file + offset);
+                printf("      Sequence........: %u\n", *sequence);
                 offset += 4;
             }
-            if (hexdump)
-                hex_dump(block_offset + 8, *block_size - 1,""); //skip magic and size (total 8 bytes)
-            return;
-        } else {
-            printf("Block was not found!\n");
+
+            size_t output_count = parse_compact_size(offset);
+            offset += get_compact_size_size(offset);
+            printf("    Outputs..........: %lu\n", output_count);
+
+            for (size_t i = 0; i < output_count; i++) {
+                printf("    Output %lu\n", i);
+                printf("    -----------\n");
+                unsigned long int *amount = (unsigned long int *)(blk_file + offset);
+                printf("      Amount........: %lu\n", *amount);
+                offset += 8;
+
+                size_t pubkey_size = parse_compact_size(offset);
+                offset += get_compact_size_size(offset);
+                printf("      ScriptPubKey Size: %lu\n", pubkey_size);
+                printf("      --- ScriptPubKey start ---\n");
+                hex_dump(offset, pubkey_size, "\t\t\t");
+                printf("      --- ScriptPubKey end ---\n");
+                offset += pubkey_size;
+            }
+
+            if (is_segwit) {
+                printf("    Witness\n");
+                printf("    -------\n");
+                for (size_t in = 0; in < input_count; in++) {
+                    printf("      Input %lu witness\n", in);
+                    size_t stack_items = parse_compact_size(offset);
+                    offset += get_compact_size_size(offset);
+                    printf("      Stack Items.......: %lu\n", stack_items);
+                    for (size_t i = 0; i < stack_items; i++) {
+                        size_t stack_item_size = parse_compact_size(offset);
+                        offset += get_compact_size_size(offset);
+                        printf("        Size.........: %lu\n", stack_item_size);
+                        printf("        --- Item start ---\n");
+                        hex_dump(offset, stack_item_size, "          ");
+                        printf("        --- Item end ---\n");
+                        offset += stack_item_size;
+                    }
+                }
+            }
+
+            unsigned int *locktime = (unsigned int *)(blk_file + offset);
+            printf("    Locktime.........: %u\n", *locktime);
+            offset += 4;
         }
-        //else {
-         //   block_offset += 8 + *block_size;
-       // }
+        if (hexdump)
+            hex_dump(block_offset + 8, *block_size - 1,""); //skip magic and size (total 8 bytes)
+        return;
+    } else {
+        printf("Block was not found!\n");
+    }
+    //else {
+    //   block_offset += 8 + *block_size;
+    // }
 
 }
 
 int hex_to_le32(const char *hex, unsigned char out[32]) {
+   /* 
     if (strlen(hex) != 64) {
         puts("hex not 64 bytes");
         return -1;
     }
-
+*/
     for (int i = 0; i < 32; i++) {
         unsigned int byte;
         if (sscanf(hex + 2 * i, "%2x", &byte) != 1)
@@ -424,6 +426,15 @@ void load_index() {
     }
     fread(hash_table, sizeof(next_block), 20000000, f);
     fclose(f);
+
+    f = fopen(HEIGHT_IDX_FILE, "rb");
+    if (f == NULL){
+        puts("Could not open "HASH_IDX_FILE);
+        puts("Run height-indexer to create it.");
+        exit(1);
+    }
+    fread(ordered_hashes, 65, 20000000, f);
+    fclose(f);
 }
 
 void string_reverse(unsigned char *str) {
@@ -437,7 +448,7 @@ void string_reverse(unsigned char *str) {
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        printf("No block hash provided\n");
+        printf("No block hash or block height provided\n");
         exit(1);
     }
     int hash_arg = 1;
@@ -452,13 +463,33 @@ int main(int argc, char **argv) {
     } else {
         printf("Could not open "HASH_IDX_FILE"\n");
     }
+    if (strlen(argv[hash_arg]) < 10) {
 
-    unsigned char block_hash_le[32];
-    int res = hex_to_le32(argv[hash_arg], block_hash_le);
-    if (res == -1) {
-        printf("Little endian conversion error\n");
-        exit(1);
     }
+    unsigned char block_hash_le[32];
+    if (strlen(argv[hash_arg]) < 10) {
+        int idx = atoi(argv[hash_arg]);     
+        printf("Block height %d requested\n", idx);
+        //print_hex_reversed(ordered_hashes[idx].block_hash, 32);
+        for (int i = 0; i < 64; i++) {
+            print_safe_ch(ordered_hashes[idx].block_hash[i]);
+        }
+        puts("");
+        //memcpy(block_hash_le, ordered_hashes[idx].block_hash, 32);
+        int res = hex_to_le32(ordered_hashes[idx].block_hash, block_hash_le);
+        if (res == -1) {
+            printf("Little endian conversion error\n");
+            exit(1);
+        }
+    } else {
+        int res = hex_to_le32(argv[hash_arg], block_hash_le);
+        if (res == -1) {
+            printf("Little endian conversion error\n");
+            exit(1);
+        }
+    }
+    printf("looking for block ");
+    print_hex_reversed(block_hash_le, 32);
 
     int idx = ht_get(block_hash_le);
     if (idx != -1) {
