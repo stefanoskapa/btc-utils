@@ -259,7 +259,7 @@ void show_block(unsigned char *block_hash, int blk_num, int blk_offset, bool hex
             printf("  Current block hash.: ");
             print_hex_reversed(block_hash, 32);
             printf("  BLK file...........: %s\n", blk_file_path);
-            printf("  BLK file offset....: %d\n", block_offset);
+            printf("  BLK file offset....: %d\n", blk_offset);
             printf("  Block size.........: %d bytes\n", *block_size);   
             printf("Block header\n");
             printf("============\n");
