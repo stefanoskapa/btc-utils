@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <openssl/sha.h>
 #include <time.h>
+#include "properties.h"
 
 #define BLK_MAX_SIZE 134217728
 #define MAX_BLOCK_SIZE 4000000
@@ -93,23 +94,6 @@ int ht_get(unsigned char *hash) {
     return -1;
 }
 
-void save_index() {
-    FILE *file = fopen("index.dat", "wb");
-    if (file == NULL) {
-        perror("fopen index.dat");
-        exit(1);
-    }
-    size_t wrote = fwrite(hash_table, sizeof(next_block), 20000000, file);
-    if (wrote != 20000000) {
-        fprintf(stderr, "short write: %zu of 20000000\n", wrote);
-        fclose(file);
-        exit(1);
-    }
-    if(fclose(file) != 0) {
-        perror("fclose index.dat");
-        exit(1);
-    }
-}
 
 bool ht_is_slot_free(int index) {
     return !(hash_table[index].is_present);
@@ -432,10 +416,10 @@ bool file_exists(char *path) {
 }
 
 void load_index() {
-    FILE *f = fopen("index.dat", "rb");
+    FILE *f = fopen(HASH_IDX_FILE, "rb");
     if (f == NULL){
-        puts("Could not open index.dat");
-        puts("Run build_hash_blk_index to create it.");
+        puts("Could not open "HASH_IDX_FILE);
+        puts("Run hash-indexer to create it.");
         exit(1);
     }
     fread(hash_table, sizeof(next_block), 20000000, f);
@@ -463,10 +447,10 @@ int main(int argc, char **argv) {
     read_xor_key(xor_key_path);
 
 
-    if (file_exists("index.dat")) {
+    if (file_exists(HASH_IDX_FILE)) {
         load_index();
     } else {
-        printf("Could not open index.dat\n");
+        printf("Could not open "HASH_IDX_FILE"\n");
     }
 
     unsigned char block_hash_le[32];

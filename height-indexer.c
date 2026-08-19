@@ -6,7 +6,7 @@
 #include <limits.h>
 #include <openssl/sha.h>
 #include <time.h>
-
+#include "properties.h"
 #define LOOK_BACK 200
 
 const unsigned char mainnet_magic[] = {0xf9, 0xbe, 0xb4, 0xd9};
@@ -171,7 +171,7 @@ int main(void) {
 
     fprintf(stdout,"Indexing blocks...");
     fflush(stdout);
-    order = fopen("block-order.txt", "w");
+    order = fopen(HEIGHT_IDX_FILE, "w");
     append_hash(genesis);
 
     unsigned char current_hash[32] = {0};

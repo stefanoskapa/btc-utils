@@ -5,13 +5,12 @@
 #include <string.h>
 #include <limits.h>
 #include <openssl/sha.h>
-
+#include "properties.h"
 #define BLK_MAX_SIZE 134217728
-
 const unsigned char mainnet_magic[] = {0xf9, 0xbe, 0xb4, 0xd9};
 const char *xor_key_path = "/mnt/ssd/bitcoin-core/data/blocks/xor.dat";
 const char *blk_path = "/mnt/ssd/bitcoin-core/data/blocks";
-unsigned char key[8];
+unsigned char xor_key[8];
 unsigned char blk_file[BLK_MAX_SIZE]; //128 MiB
 size_t blk_file_size = 0;
 char blk_file_path[512];
@@ -35,9 +34,9 @@ uint32_t ht_hash(const unsigned char *array) {
 }
 
 void save_index() {
-    FILE *file = fopen("index.dat", "wb");
+    FILE *file = fopen(HASH_IDX_FILE, "wb");
     if (file == NULL) {
-        perror("fopen index.dat");
+        perror(NULL);
         exit(1);
     }
     size_t wrote = fwrite(hash_table, sizeof(next_block), 20000000, file);
@@ -47,7 +46,7 @@ void save_index() {
         exit(1);
     }
     if(fclose(file) != 0) {
-        perror("fclose index.dat");
+        perror(NULL);
         exit(1);
     }
 }
@@ -82,17 +81,9 @@ void construct_blk_path(int blk_file_num) {
     snprintf(blk_file_path, sizeof(blk_file_path), "%s/blk%05d.dat", blk_path, blk_file_num);
 }
 
-bool is_magic(size_t index) {
-    if (index >= blk_file_size) 
-        return false;
-    for (int i = 0; i < 4; i++) {
-        if (blk_file[index + i] != mainnet_magic[i]) {
-            return false;
-        }
-    }
-    return true;
+bool is_magic(unsigned char *array) {
+    return memcmp(mainnet_magic, array, 4) == 0;
 }
-
 
 bool load_blk_file(char *path) {
     FILE *block_file = fopen(path, "rb");
@@ -112,53 +103,61 @@ void read_xor_key(const char *path) {
     }
     for (int i = 0; i < 8; i++) {
         unsigned char ch = fgetc(key_file);
-        key[i] = ch;
+        xor_key[i] = ch;
     }
     fclose(key_file);
 }
 
 
-void get_block_hash(int offset) {
-    SHA256(blk_file + offset + 8, 80, sha);
+void get_block_hash(unsigned char *array) {
+    SHA256(array, 80, sha);
     SHA256(sha, 32, sha);
 }
 
-void decrypt_header(size_t pos) {
-    size_t idx = pos % 8;
+void decrypt(unsigned char *array, size_t size, size_t offset) {
     int ch;
-    for (size_t i = pos; i < pos + 8 + 80; i++) {
-        ch = blk_file[i] ^ key[idx];
-        blk_file[i] = ch;
+    int idx = offset % 8;
+    for (size_t i = 0; i < size ; i++) {
+        ch = array[i] ^ xor_key[idx];
+        array[i] = ch;
         if (idx == 7) idx = 0; else idx++;
     }
 }
 
-void index_blocks() {
-
-    printf("indexing...\n");
-    for (int y = 0; y <= 99999; y++) {
-
-        construct_blk_path(y);
-        if(!load_blk_file(blk_file_path)) {
+void index_blocks(int blk_file_num) {
+    printf("indexing blk%d05\n", blk_file_num);
+    snprintf(blk_file_path, sizeof(blk_file_path), "%s/blk%05d.dat", blk_path, blk_file_num);
+    size_t offset = 0;
+    static unsigned char buffer[88] = {0}; 
+    FILE *block_file = fopen(blk_file_path, "rb");
+    if (block_file == NULL) {
+        perror(NULL);
+        exit(1);
+    }
+    int blocks_found = 0; 
+    do {
+        int elements_read = fread(buffer, sizeof(buffer), 1, block_file);
+        if (elements_read != 1) {
             break;
         }
-        int block_offset = 0;
-        int *block_size; 
-        int blk_block_count = 0;
-        decrypt_header(block_offset);
-        while (is_magic(block_offset)) {
-            blk_block_count++;
-            block_size = (int*)(blk_file + block_offset + 4);
-            get_block_hash(block_offset);
-            ht_add(sha, y, block_offset);
-            block_offset += 8 + *block_size; // will jump straight to the next block header
-            decrypt_header(block_offset);
-        }
-        printf("%s loaded! (%d blocks found)\n", blk_file_path, blk_block_count);
-    }
+        decrypt(buffer, 88, offset);
+        if (is_magic(buffer)) {
+            uint32_t block_size;
+            memcpy(&block_size, buffer + 4, 4);
 
-    printf("indexing complete!\n");
+            blocks_found++;
+            get_block_hash(buffer + 8);
+            ht_add(sha, blk_file_num, offset); 
+            offset += block_size + 8;
+            fseek(block_file, block_size - 88 + 8, SEEK_CUR);
+        } else {
+            break;
+        }
+
+    } while(true);
+    fclose(block_file);
 }
+
 
 bool file_exists(char *path) {
     FILE *f = fopen(path, "rb");
@@ -170,14 +169,20 @@ bool file_exists(char *path) {
 }
 
 int main(void) {
-    if (file_exists("index.dat")) {
-        puts("index.dat already exists! Delete or rename it first.");
-        exit(EXIT_FAILURE);
-    } else {
         read_xor_key(xor_key_path);
-        index_blocks();
+
+        int blk_file_num = 0;
+        do {
+
+            snprintf(blk_file_path, sizeof(blk_file_path), "%s/blk%05d.dat", blk_path, blk_file_num);
+            if(!file_exists(blk_file_path)) {
+                    break;
+            }
+            index_blocks(blk_file_num);
+            blk_file_num++;
+        } while(true);
+        printf("done!\n");
         save_index();
-    }
 
     return EXIT_SUCCESS;
 }
