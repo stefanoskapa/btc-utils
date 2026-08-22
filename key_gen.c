@@ -75,7 +75,10 @@ int main(void) {
 
     unsigned char h160[20];
     hash160(pub_compressed, sizeof(pub_compressed), h160);
-    puts("Hashed public key:");
+    puts("Compressed HASH160 public key:");
+    print_hex(h160, 20);
+    hash160(pub_uncompressed, sizeof(pub_compressed), h160);
+    puts("Uncompressed HASH160 public key:");
     print_hex(h160, 20);
 
 
